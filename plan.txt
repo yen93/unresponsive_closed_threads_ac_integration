@@ -1,0 +1,171 @@
+# Plan: process-unresponsive-lost-leads Supabase Edge Function
+
+## Context
+
+MAG runs two email follow-up sequences whose state lives in Supabase
+(MAGTestProject, project ref aivitcomiywiysrfwqxt):
+
+- soc med leads -> follow_up_sequence_threads (4-email sequence)
+- cold leads   -> cold_leads_follow_up_sequence_threads (5-email sequence)
+
+When a lead has received the final email of its sequence but never replied and
+has not yet been closed out, its ActiveCampaign (AC) deal should be marked
+Lost, the contact tagged unresponsive_contact, and a note left on the deal --
+so the sales team's AC pipeline reflects reality without manual work.
+
+Today this cleanup is manual. This change adds a weekly automation (Monday 6:30
+AM Philippine Time) that finds every such lead and performs the AC updates,
+stamping ac_lost_status_date so each lead is processed exactly once.
+
+The ac_lost_status_date column already exists (and is unused / all-NULL) on
+both source tables, and the unresponsive_contact AC tag already exists
+(tag id 204). The query currently returns 126 leads (80 cold + 46 soc med).
+
+## Existing patterns to reuse
+
+- process-bounced-leads edge function -- the template for this work. It already
+  shows the exact AC calls and idempotency approach:
+  - Add deal note: POST {AC_API_URL}/api/3/deals/{dealId}/notes with body
+    { note: { note: "<text>" } }.
+  - Mark deal lost: PUT {AC_API_URL}/api/3/deals/{dealId} with body
+    { deal: { status: 2 } } (AC status enum: 0 Open, 1 Won, 2 Lost).
+  - Uses env vars AC_API_URL, AC_API_TOKEN, SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY (all already configured -- this function is ACTIVE).
+  - Pattern: perform the AC call first, and only then write the Supabase
+    timestamp, so a failed AC call leaves the row for the next run (idempotent).
+- alternate-lead-finder edge function -- the template for the weekly cron +
+  long-run handling: dispatch the real work with EdgeRuntime.waitUntil(...),
+  return 202 immediately, and support a ?sync=1 debug param to run inline.
+- pg_cron job alternate-lead-finder-weekly (cron.job) -- the template for
+  scheduling: net.http_post(...) at "55 22 * * 0" = Mon 6:55 AM PHT. Our job
+  uses "30 22 * * 0" = Mon 6:30 AM PHT (PHT = UTC+8, so 22:30 UTC Sunday).
+
+## The one new piece: tagging the contact
+
+process-bounced-leads does not tag contacts, so this is the only genuinely new
+AC interaction. Standard AC v3 flow:
+
+- Tag id is resolved once per run (cached in a variable), not per contact:
+  GET {AC_API_URL}/api/3/tags?search=unresponsive_contact, exact-match on the
+  tag field. If absent, create it: POST /api/3/tags with
+  { tag: { tag: "unresponsive_contact", tagType: "contact", description: "" } }.
+  (It currently exists as id 204; resolve-or-create keeps the function robust.)
+- Apply to contact: POST {AC_API_URL}/api/3/contactTags with
+  { contactTag: { contact: "<contactId>", tag: "<tagId>" } }. AC de-dupes, so
+  re-applying an existing tag is safe.
+
+## Implementation
+
+### 1. Data query (run inside the function via service-role Supabase client)
+
+Extend the task's query to also return the AC contact id (needed for tagging),
+the source row id + source table (needed for a precise step-6 update), and the
+two guard columns (to know which steps to skip):
+
+  SELECT a.id AS source_id, 'follow_up_sequence_threads' AS source_table,
+         b.id AS contact_id, b.email AS contact_email,
+         c.id AS deal_id, 'soc med' AS lead_type,
+         a.unresponsive_note_added_date, a.unresponsive_tag_added_date
+  FROM follow_up_sequence_threads a
+  JOIN activecampaign_contacts b ON a.email = b.email
+  JOIN activecampaign_deals   c ON b.id   = c.contact
+  WHERE a.email_4th_date_sent IS NOT NULL AND a.ac_lost_status_date IS NULL
+  UNION ALL
+  SELECT a.id, 'cold_leads_follow_up_sequence_threads',
+         b.id, b.email, c.id, 'cold',
+         a.unresponsive_note_added_date, a.unresponsive_tag_added_date
+  FROM cold_leads_follow_up_sequence_threads a
+  JOIN activecampaign_contacts b ON a.email = b.email
+  JOIN activecampaign_deals   c ON b.id   = c.contact
+  WHERE a.email_5th_date_sent IS NOT NULL AND a.ac_lost_status_date IS NULL;
+
+Run it through a Postgres RPC -- since the JS client can't express UNION ALL
+directly, define it as a small SQL function (e.g. get_unresponsive_lost_leads())
+created in the same migration and called via
+supabase.rpc("get_unresponsive_lost_leads"). (Alternative: two separate
+.select() queries merged in JS -- but the RPC keeps the SQL authoritative and
+matches the task's single-query intent.)
+
+### 2. Per-step guard columns (resumable, never duplicates a note)
+
+Add two new timestamp guard columns to BOTH source tables, and reuse the
+existing ac_lost_status_date as the final (deal-lost) marker:
+
+  - unresponsive_note_added_date (timestamptz, new) -- set after note POST
+    succeeds; skip note on retry.
+  - unresponsive_tag_added_date  (timestamptz, new) -- set after contactTags
+    POST succeeds; skip tag on retry.
+  - ac_lost_status_date (existing) -- set after deal status PUT succeeds; overall
+    done marker (step 6).
+
+### 3. Per-row processing (steps 2-6, in order, each guarded)
+
+The query still selects rows WHERE ac_lost_status_date IS NULL. For each
+returned row, each AC call is skipped when its guard is already set, and its
+guard is stamped immediately after that call succeeds (a separate UPDATE):
+
+1. If unresponsive_note_added_date is NULL -> add deal note
+   (POST /deals/{deal_id}/notes) -> stamp unresponsive_note_added_date.
+   Exact note text:
+   "<contact_email> did not respond to any of our emails. Changing deal status to lost and tagging lead as unresponsive_contact. This note has been added through a supabase edge function automation."
+2. If unresponsive_tag_added_date is NULL -> add unresponsive_contact tag to the
+   contact (POST /contactTags) -> stamp unresponsive_tag_added_date.
+3. Set deal status to Lost (PUT /deals/{deal_id} -> status: 2) -> stamp
+   ac_lost_status_date = now() (this is step 6, clears the row from future runs).
+
+Because each guard is stamped right after its own AC call, a partial failure
+(e.g. status PUT fails after note+tag) resumes cleanly next run with no
+duplicate note and no duplicate tag -- only the remaining step executes. If a
+step throws, record the error and move on; the row (still ac_lost_status_date
+IS NULL) is retried next week. Collect a per-lead success/failure summary and
+console.log it.
+
+Other pre-existing columns (is_tagged_in_ac, is_updated_in_ac_after_status_change,
+status_update_date) are left untouched -- they belong to a different process.
+
+### 4. Execution shape
+
+Mirror alternate-lead-finder: kick processing into EdgeRuntime.waitUntil() and
+return 202 Accepted immediately (126 leads x 3 sequential AC calls can exceed
+the synchronous request window). Support ?sync=1 to run inline and return the
+full summary for manual testing.
+
+## Files / deliverables
+
+There is no local repo (working dir holds only initial_prompt.txt); everything
+is deployed directly to Supabase via MCP:
+
+1. Edge function process-unresponsive-lost-leads (index.ts) -- deploy via
+   mcp__claude_ai_Supabase__deploy_edge_function (project aivitcomiywiysrfwqxt).
+2. SQL migration (via mcp__claude_ai_Supabase__apply_migration):
+   - ALTER TABLE ... ADD COLUMN IF NOT EXISTS unresponsive_note_added_date
+     timestamptz and unresponsive_tag_added_date timestamptz on BOTH
+     follow_up_sequence_threads and cold_leads_follow_up_sequence_threads.
+   - Create the get_unresponsive_lost_leads() SQL function (query above).
+3. pg_cron job process-unresponsive-lost-leads-weekly at "30 22 * * 0" calling
+   the function URL with net.http_post, via apply_migration / execute_sql
+   (mirror the existing weekly job's header/timeout shape).
+4. A local copy of index.ts + the SQL saved into the working directory for
+   reference/version tracking.
+
+## Verification
+
+1. Dry read -- before deploy, re-run the count query (expect ~126) to know the
+   working set.
+2. Manual single-lead test -- invoke ...?sync=1&limit=1 (add an optional limit
+   param) and confirm in AC that the one deal got a note, the contact got the
+   unresponsive_contact tag, and the deal status is Lost; confirm the source
+   row's ac_lost_status_date is now set.
+3. Idempotency -- re-invoke; the just-processed lead must no longer be in the
+   query result set (not re-processed).
+4. Full run -- invoke ?sync=1 (or let it run) and check the JSON summary
+   (processed / succeeded / failed + error list) and the function logs via
+   mcp__claude_ai_Supabase__query_logs.
+5. Cron -- confirm the new row in cron.job with schedule "30 22 * * 0".
+
+## Security note (surface to user, do not auto-fix)
+
+Supabase advisor flags follow_up_sequence_threads (and 13 other tables) as
+having RLS disabled -- exposed to anon/authenticated roles. This function uses
+the service-role key so it is unaffected, but it is an existing exposure worth
+raising separately. Not part of this task; no change proposed here.

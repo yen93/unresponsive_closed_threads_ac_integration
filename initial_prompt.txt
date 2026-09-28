@@ -1,0 +1,35 @@
+## your_main_task:
+Create a supabase edge function that runs every monday at 6:30 AM PH Time to process each unresponsive lost lead and do the specified automation_steps.
+
+## get_all_unresponsive_lost_leads:
+SELECT 
+    b.email AS contact_email, 
+    c.id AS deal_id,
+    'soc med' AS lead_type
+FROM follow_up_sequence_threads a
+INNER JOIN activecampaign_contacts b 
+    ON a.email = b.email
+INNER JOIN activecampaign_deals c 
+    ON b.id = c.contact
+WHERE a.email_4th_date_sent IS NOT NULL
+  AND a.ac_lost_status_date IS NULL
+UNION ALL
+SELECT 
+    b.email AS contact_email, 
+    c.id AS deal_id,
+    'cold' AS lead_type
+FROM cold_leads_follow_up_sequence_threads a
+INNER JOIN activecampaign_contacts b 
+    ON a.email = b.email
+INNER JOIN activecampaign_deals c 
+    ON b.id = c.contact
+WHERE a.email_5th_date_sent IS NOT NULL
+  AND a.ac_lost_status_date IS NULL;
+
+## automation_steps:
+1. execute get_all_unresponsive_lost_leads query.
+2. for each row returned, find the AC deal.
+3. add note to the deal: "<email> did not respond to any of our emails. Changing deal status to lost and tagging lead as unresponsive_contact. This note has been added through a supabase edge function automation."
+4. add unresponsive_contact tag to contact.
+5. change deal status to lost.
+6. update and set either follow_up_sequence_threads or cold_leads_follow_up_sequence_threads ac_lost_status_date column to CURRENT_TIMESTAMP
