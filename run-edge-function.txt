@@ -1,0 +1,55 @@
+===============================================================================
+ Run the process-unresponsive-lost-leads edge function
+===============================================================================
+ Project : MAGTestProject (aivitcomiywiysrfwqxt)
+ URL     : https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads
+ Auth    : none needed (function deployed with verify_jwt = false)
+ Method  : POST
+
+ Notes:
+ - Uses curl.exe (built into Windows 10/11). Works in BOTH Command Prompt (cmd)
+   and PowerShell. In PowerShell, always type "curl.exe" (not just "curl", which
+   is an alias for a different command).
+ - Copy ONE line below and paste it into the terminal, then press Enter.
+===============================================================================
+
+
+-------------------------------------------------------------------------------
+ 1) REAL RUN (background) - same as the weekly Monday job
+    Returns {"status":"started"} immediately and processes ALL due leads in the
+    background. Skip-leads are held back; the rest are noted, tagged, set Lost.
+-------------------------------------------------------------------------------
+curl.exe -X POST "https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads"
+
+
+-------------------------------------------------------------------------------
+ 2) FULL RUN (inline) - waits and returns the full summary
+    Processes ALL due leads and prints the result:
+    {processed, succeeded, skipped, failed, errors}
+-------------------------------------------------------------------------------
+curl.exe -X POST "https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads?sync=1"
+
+
+-------------------------------------------------------------------------------
+ 3) SMALL BATCH (inline) - process just the first 10 leads, print the summary
+    Good for spot-checking the skip/close split before a full run.
+-------------------------------------------------------------------------------
+curl.exe -X POST "https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads?sync=1&limit=10"
+
+
+-------------------------------------------------------------------------------
+ 4) SINGLE LEAD (inline) - process just the first 1 lead, print the summary
+-------------------------------------------------------------------------------
+curl.exe -X POST "https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads?sync=1&limit=1"
+
+
+===============================================================================
+ What the summary fields mean
+===============================================================================
+ processed  = leads looked at this run
+ succeeded  = leads closed (note added + contact tagged + deal set to Lost)
+ skipped    = leads left alone because a human worked the deal after the last
+              email (marked unresponsive_lead_processing_is_skipped = true)
+ failed     = leads that hit an error this run (listed in "errors"); they are
+              left untouched and retried on the next run
+===============================================================================

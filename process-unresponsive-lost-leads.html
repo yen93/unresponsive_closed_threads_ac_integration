@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unresponsive Lost Leads Automation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Lato', Arial, sans-serif; background: #ffffff; }
+  .col { max-width: 760px; margin: 0 auto; padding: 32px 20px; }
+  .header-band {
+    background: linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(https://ssl.gstatic.com/atari/images/simple-header-blended-small.png) center/cover, #37474F;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+  }
+  .header-band h1 {
+    color: #ffffff;
+    font-family: 'Lato', sans-serif;
+    font-weight: 300;
+    font-size: 44px;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0;
+    line-height: 1.2;
+  }
+  .header-band .subtitle {
+    color: #ffffff;
+    font-family: 'Lato', sans-serif;
+    font-weight: 300;
+    font-size: 18px;
+    margin: 0;
+    opacity: 0.9;
+  }
+  .intro-band { background: #323232; }
+  .intro-band p {
+    color: #ffffff;
+    font-family: 'Lato', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .header-strip { background: #F2F2F2; }
+  .header-strip .col { padding: 32px 20px; }
+  .header-strip h2 {
+    color: #37474F;
+    font-family: 'Lato', sans-serif;
+    font-weight: 400;
+    font-size: 26px;
+    margin: 0;
+  }
+  .content-band { background: #ffffff; }
+  .content-band h3 {
+    color: #37474F;
+    font-family: 'Lato', sans-serif;
+    font-weight: 700;
+    font-size: 19px;
+    margin: 24px 0 8px 0;
+  }
+  .content-band h3:first-child { margin-top: 0; }
+  .content-band p {
+    color: #212121;
+    font-family: 'Lato', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0 0 16px 0;
+  }
+  .content-band ul, .content-band ol {
+    color: #212121;
+    font-family: 'Lato', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    padding-left: 24px;
+    margin: 0 0 16px 0;
+  }
+  .content-band li { margin-bottom: 10px; }
+  .content-band a { color: #37474F; text-decoration: underline; }
+  .content-band code {
+    background: #F2F2F2;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 14px;
+  }
+  .placeholder-img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 8px 0 4px 0;
+    border: 1px solid #e0e0e0;
+  }
+  .placeholder-caption {
+    color: #757575;
+    font-family: 'Lato', sans-serif;
+    font-size: 13px;
+    font-style: italic;
+    margin: 0 0 16px 0;
+  }
+  .closing-band p {
+    color: #212121;
+    font-family: 'Lato', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0 0 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER BANNER (top of page only) -->
+<div class="header-band">
+  <div>
+    <h1>Unresponsive Lost Leads Automation</h1>
+    <p class="subtitle">Auto-closing dead follow-up leads in ActiveCampaign — while protecting the ones sales is still working</p>
+  </div>
+</div>
+
+<!-- TOP INTRO DARK BAND -->
+<div class="intro-band">
+  <div class="col">
+    <p>MAG runs two email follow-up sequences whose state lives in Supabase. When a lead reaches the last email of its sequence and never replies, its ActiveCampaign (AC) deal should be marked Lost, the contact tagged, and a note left on the deal — so the sales pipeline reflects reality without anyone doing it by hand. This automation does that cleanup every week. Just as importantly, it now leaves alone any lead the sales team is still actively working, so a genuinely live opportunity is never closed by mistake.</p>
+  </div>
+</div>
+
+<!-- SECTION: What it does -->
+<div class="header-strip">
+  <div class="col"><h2>What it does</h2></div>
+</div>
+<div class="content-band">
+  <div class="col">
+    <p>Every week the automation finds each lead that received the final email of its follow-up sequence, never replied, and has not already been closed out. For each of those leads it performs three ActiveCampaign actions, in order:</p>
+    <ol>
+      <li><strong>Adds a note to the deal</strong> explaining the lead did not respond and that the deal is being changed to lost and the contact tagged.</li>
+      <li><strong>Tags the contact</strong> with <code>unresponsive_contact</code>.</li>
+      <li><strong>Sets the deal status to Lost.</strong></li>
+    </ol>
+    <p>Two email sequences feed the process: the social-media leads (a 4-email sequence) and the cold leads (a 5-email sequence). A lead qualifies once it has received the last email of its own sequence — the 4th for social-media leads, the 5th for cold leads.</p>
+  </div>
+</div>
+
+<!-- SECTION: The "still being worked" safeguard -->
+<div class="header-strip">
+  <div class="col"><h2>The "still being worked" safeguard</h2></div>
+</div>
+<div class="content-band">
+  <div class="col">
+    <p>Some leads that never reply to the email sequence are still very much alive — a salesperson may have spoken to them and logged a note on the deal after the last email went out. Those leads must never be auto-closed.</p>
+    <p>So before making any change, the automation checks the deal's notes in ActiveCampaign:</p>
+    <ul>
+      <li>It looks at the most recent deal note written by <strong>someone other than the automation account</strong>. Notes left by the automation account (Julienne's login, which drives most automations) don't count as a sign of human activity.</li>
+      <li>If that most recent human note is dated <strong>after</strong> the lead's final follow-up email, the lead is treated as still being worked. The automation marks it as skipped and makes <strong>no</strong> changes in ActiveCampaign — no note, no tag, no status change.</li>
+      <li>Once a lead is marked skipped, it is permanently excluded from future runs.</li>
+    </ul>
+    <p>In practice this catches real cases: for example, a lead whose last email went out on 8 July but whose deal owner added notes on 13 July and 22 July is recognised as active and left open.</p>
+  </div>
+</div>
+
+<!-- SECTION: When it runs -->
+<div class="header-strip">
+  <div class="col"><h2>When it runs</h2></div>
+</div>
+<div class="content-band">
+  <div class="col">
+    <p>The automation runs automatically once a week:</p>
+    <ul>
+      <li><strong>Every Monday at 6:30 AM Philippine Time</strong> (22:30 UTC on Sunday).</li>
+      <li>It is triggered by a scheduled database job that calls the automation over the web; the job simply wakes the process up — all the work happens inside the automation itself.</li>
+    </ul>
+    <p>Because a single run can involve many leads and hundreds of ActiveCampaign calls, the automation acknowledges the trigger immediately and continues the work in the background, so it never runs out of time mid-run. It can also be run on demand for testing, including a mode that processes just a handful of leads at a time.</p>
+  </div>
+</div>
+
+<!-- SECTION: Safe by design -->
+<div class="header-strip">
+  <div class="col"><h2>Safe by design</h2></div>
+</div>
+<div class="content-band">
+  <div class="col">
+    <p>The automation is built so it can be re-run safely and never double-acts on a lead:</p>
+    <ul>
+      <li><strong>Each step is stamped only after it succeeds.</strong> The note, the tag, and the "lost" status each record their own completion time on the source record the moment the ActiveCampaign call returns successfully.</li>
+      <li><strong>Partial failures resume cleanly.</strong> If a run gets partway through a lead and then fails, the next run picks up exactly where it left off — no duplicate note and no duplicate tag.</li>
+      <li><strong>A lead that can't be checked is left alone.</strong> If the automation can't read a deal's notes (for example, a temporary ActiveCampaign hiccup), it does nothing to that lead and retries it next time, rather than risk wrongly closing it.</li>
+      <li><strong>Once closed or skipped, a lead drops out of the working set</strong> and is never processed again.</li>
+    </ul>
+    <p>The automation only ever touches its own set of tracking fields; other columns that belong to different processes are left untouched.</p>
+  </div>
+</div>
+
+<!-- SECTION: How it's built -->
+<div class="header-strip">
+  <div class="col"><h2>How it's built</h2></div>
+</div>
+<div class="content-band">
+  <div class="col">
+    <h3>The pipeline, end to end</h3>
+    <ul>
+      <li><strong>Scheduled job (pg_cron):</strong> a weekly database timer that, every Monday 6:30 AM PHT, sends a web request to wake the automation.</li>
+      <li><strong>Edge function (the automation):</strong> a small server-side program that runs the whole process — it asks the database for the qualifying leads, then for each one talks to ActiveCampaign.</li>
+      <li><strong>Database query (a saved SQL function):</strong> a single authoritative query that combines both email sequences, joins each lead to its ActiveCampaign contact and deal, filters to leads that finished their sequence and aren't closed or skipped, and returns everything the automation needs — including each lead's final-email date.</li>
+      <li><strong>ActiveCampaign, per lead:</strong> read the deal's notes (to run the safeguard check), then — only if the lead is genuinely unresponsive — add the note, add the tag, and set the deal to Lost.</li>
+      <li><strong>Write-back to the database:</strong> after each successful ActiveCampaign action, the automation records a timestamp (or the skip flag) on the lead's source record, which is what makes the whole process resumable and one-time-only.</li>
+    </ul>
+
+    <h3>Tech stack</h3>
+    <ul>
+      <li><strong>Supabase</strong> — the database that stores the follow-up sequence records and the tracking fields.</li>
+      <li><strong>Supabase Edge Function</strong> (TypeScript / Deno) — where the automation logic runs.</li>
+      <li><strong>PostgreSQL + pg_cron</strong> — the database and its built-in scheduler that fires the weekly run.</li>
+      <li><strong>pg_net</strong> — the database extension that lets the scheduled job send the web request that starts a run.</li>
+      <li><strong>ActiveCampaign API</strong> — the CRM where deals are noted, contacts are tagged, and deals are marked Lost.</li>
+    </ul>
+    <img class="placeholder-img" src="https://placehold.co/900x400/eeeeee/37474f?text=Weekly%20run%20flow%3A%20schedule%20%E2%86%92%20query%20%E2%86%92%20check%20notes%20%E2%86%92%20skip%20or%20close" alt="Weekly run flow diagram">
+    <p class="placeholder-caption">Placeholder image — replace with an actual screenshot.</p>
+  </div>
+</div>
+
+<!-- FIXED SECTIONS -->
+<section id="h.68f0b8918457bce8_82" style="background:#ffffff;padding:8px 20px;"><div style="max-width:760px;margin:0 auto;"><hr style="border:none;border-top:1px solid #d9d9d9;margin:0;"></div></section>
+<section id="h.5a0263770fa94d5d_3" style="background:#ffffff;padding:24px 20px;"><div style="max-width:760px;margin:0 auto;"><a href="#" style="display:inline-block;font-family:'Lato',sans-serif;font-size:15px;font-weight:400;color:#ffffff;background:#37474F;padding:12px 28px;border-radius:4px;text-decoration:none;letter-spacing:0.3px;">Button label</a></div></section>
+
+<!-- CLOSING BAND -->
+<div class="closing-band">
+  <div class="col">
+    <p>Updated by: Julienne</p>
+    <p>Last Update: 29 September 2026</p>
+  </div>
+</div>
+
+</body>
+</html>
