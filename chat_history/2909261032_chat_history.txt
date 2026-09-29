@@ -1,0 +1,175 @@
+================================================================================
+CHAT HISTORY EXPORT — 2026-09-29
+Session: Implementing the process-unresponsive-lost-leads Supabase edge function
+         from plan.txt, then adding a "still being worked" skip guard so leads
+         with recent human deal-notes are never auto-closed in ActiveCampaign.
+================================================================================
+
+NOTE ON REDACTIONS: While reading the existing pg_cron job
+(alternate-lead-finder-weekly) from the cron.job table for reference, the query
+output contained a live Supabase anon JWT embedded in its net.http_post()
+Authorization header. It was only read for pattern reference and is NOT
+reproduced here; it is shown as [REDACTED_SUPABASE_ANON_JWT]. The AC_API_TOKEN
+and SUPABASE_SERVICE_ROLE_KEY are never printed anywhere in the session (they
+live only in edge-function env vars), so nothing else needed redacting. No
+secrets were written to disk.
+
+--------------------------------------------------------------------------------
+USER:
+"implement plan: C:\Users\Cloverly\claude_code\unresponsive_closed_threads_ac_integration\plan.txt"
+
+The plan (written in a prior session): add a weekly automation (Mon 6:30 AM PHT)
+that finds every "unresponsive lost lead" across two Supabase sequence tables and,
+in ActiveCampaign (AC), adds a deal note, tags the contact unresponsive_contact,
+and marks the deal Lost — stamping guard timestamps so each lead is processed
+exactly once and partial failures resume cleanly. Deploy everything to Supabase
+project MAGTestProject (ref aivitcomiywiysrfwqxt) via MCP. Query returns 126 leads
+(80 cold + 46 soc med); unresponsive_contact tag already exists (id 204).
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Explored the two template edge functions to match patterns:
+  - process-bounced-leads: the exact AC calls (POST /deals/{id}/notes; PUT
+    /deals/{id} {deal:{status:2}} where 0=Open/1=Won/2=Lost) and the
+    stamp-after-success idempotency approach.
+  - alternate-lead-finder: the background execution shape (EdgeRuntime.waitUntil,
+    return 202, ?sync=1 to run inline, ?limit=N).
+Read the alternate-lead-finder-weekly cron (schedule "55 22 * * 0"); its
+net.http_post carried a live anon JWT (see redaction note). Derived Mon 6:30 AM
+PHT = "30 22 * * 0" UTC.
+
+Verified schemas and counts: the four tables and needed columns exist;
+ac_lost_status_date is timestamp-without-tz on both source tables; contact/deal
+ids are text; the count query returned 46 soc med + 80 cold = 126.
+
+Applied migration unresponsive_lost_leads_columns_and_rpc: added guard columns
+unresponsive_note_added_date + unresponsive_tag_added_date (timestamptz) to both
+source tables, and created SQL function get_unresponsive_lost_leads() (UNION ALL
+over both sequences, returning source_id, source_table, contact_id,
+contact_email, deal_id, lead_type, and the two guard columns). Confirmed the RPC
+returned 126.
+
+Wrote and deployed the process-unresponsive-lost-leads edge function (index.ts):
+resolve-or-create the unresponsive_contact tag once per run; per lead, in order,
+add note -> tag contact -> set deal Lost, each guarded by its own timestamp and
+stamped only after the AC call succeeds; ?sync=1 / ?limit=N debug params; 202 +
+waitUntil otherwise. First deploy came back verify_jwt=true; redeployed with
+verify_jwt=false to match the templates (so cron/tests need no token). Saved local
+index.ts and migration.sql.
+
+Ran the single-lead test (?sync=1&limit=1): 1 succeeded. Verified end-to-end —
+lead 254 (elle.callo@reiwa.com.au) had all three DB timestamps stamped; AC deal
+2062 status=2 (Lost); contact 18861 gained tag 204. Idempotency confirmed
+(working set dropped 126 -> 125; the processed row no longer returned).
+
+Created the pg_cron job process-unresponsive-lost-leads-weekly at "30 22 * * 0".
+The first attempt (mirroring the template's embedded anon-JWT Authorization
+header) was blocked by the auto-mode classifier as credential leakage; since the
+function is verify_jwt=false, redeployed the cron with NO Authorization header at
+all (cleaner — no embedded token). Confirmed the job row (jobid 4, active).
+
+Because the full run marks ~125 real deals Lost (hard to reverse), asked the user
+whether to run the full backlog now, leave it for the cron, or run a small batch.
+
+--------------------------------------------------------------------------------
+USER:
+Chose "Run a small batch first."
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Ran ?sync=1&limit=10: 10/10 succeeded. Listed the 10 processed leads with their
+deal/contact ids and independently reconfirmed one in AC (deal 4067 Lost, contact
+18421 tagged at 18:55). Reported: 11 leads processed total, 115 remaining;
+provided the spot-check table and noted the two decisions (verify_jwt=false; cron
+without embedded token) plus the pre-existing RLS-disabled exposure.
+
+--------------------------------------------------------------------------------
+USER:
+New requirement: "check email_4th_date_sent first, if the last deal note created
+by other users (not Julienne Mae Anito) in AC is more recent than
+email_4th_date_sent, then set unresponsive_lead_processing_is_skipped = true and
+skip the rest of automation_steps. Notes left by Julienne Mae Anito are mostly
+automations, so only dates of notes from other users can be used as reference."
+(Session re-entered plan mode.)
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Explored how AC exposes note authorship. Key findings:
+  - get_profile confirmed the API token belongs to Julienne Mae Anito.
+  - dealActivities carry userid + cdate per note; the function's own note on deal
+    2062 showed userid 27 — so Julienne = AC user id 27. Human notes on that deal
+    were userid 6/18/19 (19 = the deal owner).
+  - Proved the concern with real data: lead 254 (deal 2062) had
+    email_4th_date_sent 2026-07-20 and a human note by user 19 on 2026-07-23
+    (after the final email) — so the very first test had wrongly closed an active
+    lead; its ac_lost_status_date was already NULL again (user had started
+    reverting) and the deal had been reopened.
+
+Asked two clarifying questions. User chose: (1) reference date = per-sequence
+final email (soc med -> email_4th, cold -> email_5th); (2) "i manually checked
+each and fixed them in ac and reverted in db. so this part is fixed" — i.e.
+going-forward only, no retroactive audit.
+
+Wrote/approved the plan (C:\Users\Cloverly\.claude\plans\wobbly-soaring-conway.md)
+and implemented:
+  - Migration unresponsive_lead_skip_guard: added
+    unresponsive_lead_processing_is_skipped (boolean) to both tables; dropped and
+    recreated get_unresponsive_lost_leads() to also return final_email_date and to
+    exclude skipped leads (AND unresponsive_lead_processing_is_skipped IS NOT TRUE).
+  - Edge function: added hasHumanNoteAfterFinalEmail(), a JULIENNE_AC_USER_ID
+    constant (default "27", env-overridable), a skipped counter, and a skip check
+    that runs first (for un-started leads) and, on a note-fetch error, records it
+    and leaves the row for next run rather than risk a wrong close.
+
+First test of the new build (?sync=1&limit=1) unexpectedly re-closed lead 254
+instead of skipping it. Debugged with a temporary ?debug_deal branch and found:
+the raw AC dealActivities endpoint SILENTLY IGNORES filters[dataType]=note and
+returns activities oldest-first; the paging loop advanced offset by a fixed page
+size while AC returned fewer rows per page, so it skipped past the decisive
+2026-07-23 note and computed "no human note" -> closed. Also confirmed the deal's
+/notes endpoint is the clean source (note-only, each carries userid + cdate).
+
+Fixed the helper to read /api/3/deals/{id}/notes and advance offset by the ACTUAL
+returned count. Because that stray test had re-closed deal 2062, added a one-shot
+admin branch and used it to fully revert: reopened deal 2062 (status 0), deleted
+the automation note (via /api/3/notes/{id} after a 405 on the deal-scoped path),
+and removed tag 204 from contact 18861 (contactTag 51548). Reset lead 254's DB row
+(all stamps NULL, skipped=true).
+
+Re-tested on lead 203 / deal 2338 (lily.aubin, human note 2026-07-13 > final
+2026-07-08): correctly skipped:1, no AC changes, skip flag set. Deployed the final
+clean v8 (debug/admin branches removed) and updated local index.ts + migration.sql.
+
+While verifying, flagged that the earlier batch-of-10 looked only partly reverted
+(deal 2338 still Lost though active; 8 of 10 still marked done in DB). Asked the
+user how to handle the batch-of-10 and whether to run the full 116 now.
+
+--------------------------------------------------------------------------------
+USER:
+Chose: batch-of-10 = "Leave it — I've got it"; full run = "Run a small batch first."
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Ran the guarded ?sync=1&limit=10: processed 10 -> 6 closed, 4 skipped, 0 failed.
+Verified the split: the 4 skipped rows (helena.marshall, tim.oconnor, joanna.nido,
+nicole.meehan) all had note/tag/lost still NULL and skipped=true (zero AC writes,
+only the flag), and deal 4152 confirmed human notes on Jul 13 & Jul 22 after the
+Jul 8 final email; the closed deal 4129 had only user-27 (automation) notes after
+its final email — correct close. Reported the feature complete and verified, the
+2062 remediation done, and ~106 leads remaining awaiting the user's go-ahead or
+Monday's cron.
+
+--------------------------------------------------------------------------------
+USER:
+Invoked /save-chat-history to document this conversation.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Got the timestamp (2909261032), matched the existing chat_history file's format,
+performed the mandatory secret scan (redacting the Supabase anon JWT seen in the
+cron.job output), and wrote this export. Did NOT touch as_built.txt/CLAUDE.md and
+did NOT commit or push.
+
+================================================================================
+END OF EXPORT
+================================================================================
