@@ -61,12 +61,15 @@ $$;
 -- Migration 2: process_unresponsive_lost_leads_weekly_cron
 -- Mon 6:30 AM PHT (UTC+8) => 22:30 UTC Sunday. Function is deployed with
 -- verify_jwt = false, so no Authorization header / embedded token is needed.
+-- ?limit=20 caps the weekly job to 20 leads per run; the untouched rest are
+-- picked up on subsequent Mondays. Manual/debug runs (no ?limit) still process
+-- all due leads.
 select cron.schedule(
   'process-unresponsive-lost-leads-weekly',
   '30 22 * * 0',
   $$
   select net.http_post(
-    url := 'https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads',
+    url := 'https://aivitcomiywiysrfwqxt.supabase.co/functions/v1/process-unresponsive-lost-leads?limit=20',
     headers := jsonb_build_object('Content-Type','application/json'),
     body := '{}'::jsonb,
     timeout_milliseconds := 30000);

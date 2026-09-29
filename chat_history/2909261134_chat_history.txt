@@ -1,0 +1,55 @@
+================================================================================
+CHAT HISTORY EXPORT — 2026-09-29
+Session: Capping the weekly process-unresponsive-lost-leads cron job to 20 leads
+         per run by adding ?limit=20 to the scheduled function URL (live cron +
+         migration.sql), leaving manual/debug runs unlimited.
+================================================================================
+
+--------------------------------------------------------------------------------
+USER:
+"1 minor update: just limit the scheduled live edge function that runs every
+monday to process only 20 rows per run."
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Located the relevant files (index.ts, migration.sql, run-edge-function.txt) and
+read the edge function and the pg_cron definition. Confirmed the function already
+supports a ?limit=N query param: run(limit) slices the RPC results
+(leads.slice(0, limit)) before processing. The weekly cron
+(process-unresponsive-lost-leads-weekly, "30 22 * * 0" = Mon 6:30 AM PHT) called
+the function URL with NO ?limit, so it processed all due leads.
+
+Chose the least-invasive approach: add ?limit=20 to the scheduled cron URL only,
+so the Monday job caps at 20 leads while manual/debug runs (no ?limit) still
+process everything. No index.ts change needed.
+
+Updated migration.sql: added ?limit=20 to the cron block's net.http_post URL and
+a comment explaining the cap and the carry-over behaviour.
+
+Updated the LIVE cron via Supabase MCP (project aivitcomiywiysrfwqxt):
+  - First queried cron.job for jobname 'process-unresponsive-lost-leads-weekly' —
+    confirmed jobid 4, schedule "30 22 * * 0", URL with no limit.
+  - Re-ran cron.schedule() with the same jobname (updates in place) using the
+    ?limit=20 URL; it returned schedule 4 (same jobid, updated).
+  - Re-queried and confirmed the live command now posts to
+    .../process-unresponsive-lost-leads?limit=20, schedule unchanged.
+
+Reported done and noted a behavioural caveat: the 20-row cap limits leads LOOKED
+AT, and skipped leads count toward the 20 — so a Monday dominated by skips would
+close few leads. Offered an alternative (count only closed leads, which would need
+an index.ts change) if the user prefers that semantics.
+
+--------------------------------------------------------------------------------
+USER:
+Invoked /save-chat-history to document this conversation.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Got the timestamp (2909261134), matched the existing chat_history file's format,
+ran the mandatory secret scan (nothing to redact — only the public function URL
+and the cron jobid appeared), and wrote this export. Did NOT touch
+as_built.txt/CLAUDE.md and did NOT commit or push.
+
+================================================================================
+END OF EXPORT
+================================================================================
